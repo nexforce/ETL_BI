@@ -64,21 +64,21 @@ def extract_tasks_data():
     def get_all_spaces(team_id):
         url = f"https://api.clickup.com/api/v2/team/{team_id}/space"
         query = {"archived": "false"}
-        response = requests.get(url, headers=headers, params=query, timeout=10)
+        response = requests.get(url, headers=headers, params=query, timeout=60)
         response.raise_for_status()
         return response.json()
 
     def get_all_folders(space_id):
         url = f"https://api.clickup.com/api/v2/space/{space_id}/folder"
         query = {"archived": "false"}
-        response = requests.get(url, headers=headers, params=query, timeout=10)
+        response = requests.get(url, headers=headers, params=query, timeout=60)
         response.raise_for_status()
         return response.json()
 
     def get_all_lists(folder_id):
         url = f"https://api.clickup.com/api/v2/folder/{folder_id}/list"
         query = {"archived": "false"}
-        response = requests.get(url, headers=headers, params=query, timeout=10)
+        response = requests.get(url, headers=headers, params=query, timeout=60)
         response.raise_for_status()
         return response.json()
 

@@ -1,6 +1,7 @@
+import time
+import logging
 from google.cloud import bigquery
 from google.oauth2 import service_account
-import time
 from data_extraction.squads_extraction import extract_squads_data
 from data_extraction.customers_extraction import extract_customers_data
 from data_extraction.tasks_extraction import extract_tasks_data
@@ -8,6 +9,10 @@ from data_transformation.squads_transformation import transform_squads_data
 from data_transformation.customers_transformation import transform_customers_data
 from data_transformation.tasks_transformation import transform_tasks_data
 from task_management.tasks_creation import create_tasks_in_history  
+
+
+# Configure o nível de log para DEBUG
+logging.basicConfig(level=logging.DEBUG)
 
 # Função para executar queries
 def run_query(client, query):
