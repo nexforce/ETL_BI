@@ -5,3 +5,4 @@ protobuf==3.20.3
 Requests==2.32.3
 tenacity==8.2.2
 tqdm==4.66.4
+python-dotenv==0.21.0
