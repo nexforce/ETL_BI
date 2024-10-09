@@ -91,7 +91,7 @@ def extract_tasks_data():
                 while True:
                     url = f"https://api.clickup.com/api/v2/list/{list_id}/task"
                     query = {"page": page, "subtasks": "true", "include_closed": "true"}
-                    response = requests.get(url, headers=headers, params=query, timeout=10)
+                    response = requests.get(url, headers=headers, params=query, timeout=60)
                     response.raise_for_status()
                     data = response.json()
                     tasks.extend(data['tasks'])
