@@ -1,8 +1,9 @@
 #tasks_creation
 
-from data_transformation.squads_transformation import transform_squads_data
+from dotenv import load_dotenv
 import requests
 import pandas as pd
+import os
 
 def create_tasks_in_history(task_history, exp_squad):
 
@@ -160,7 +161,10 @@ def create_tasks_in_history(task_history, exp_squad):
 
     # Token e ID
     list_id = '901301447850'
-    api_token = 'pk_82087950_HMVU88P6USAAWJ6B9GQBXZ5Y5HRFBPHG'
+    # Carregar variáveis do arquivo .env
+    load_dotenv()
+
+    api_token = os.getenv('API_TOKEN_SECONDARY') 
 
     # Iterar sobre as tarefas e criar cada uma no ClickUp
     df.apply(create_task_in_clickup, axis=1, list_id=list_id, api_token=api_token)
