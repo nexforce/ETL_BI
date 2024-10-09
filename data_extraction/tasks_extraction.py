@@ -1,24 +1,17 @@
 # tasks_extraction.py
 
-from tenacity import retry, wait_exponential, stop_after_attempt
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm 
-from datetime import datetime
-import time
-import re
+import os
+import pandas as pd
 import requests
 import logging
-import pandas as pd
-import diskcache as dc
+import re
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
+from time import sleep
 from dotenv import load_dotenv
-import os
 
 def extract_tasks_data():
-
-        # Cache Persistente
-    cache = dc.Cache('/tmp/mycache')
-
-    cache.clear()
 
     # Configuração do Logger
     logging.basicConfig(level=logging.INFO)
@@ -46,7 +39,6 @@ def extract_tasks_data():
         data_inicio = datetime.strptime(f"{inicio}-2024", "%d-%m-%Y")
         data_fim = datetime.strptime(f"{fim}-2024", "%d-%m-%Y")
         
-        # Ajuste: comparar incluindo o dia de fim
         if data_inicio <= hoje <= (data_fim.replace(hour=23, minute=59, second=59)):
             sprint_atual = sprint
             break
@@ -67,17 +59,8 @@ def extract_tasks_data():
     MAX_RETRIES = 5
     RETRY_DELAY = 10  # Tempo inicial de atraso em segundos
 
-    def cached(func):
-        def wrapper(*args, **kwargs):
-            key = (func.__name__, args, frozenset(kwargs.items()))
-            if key in cache:
-                return cache[key]
-            result = func(*args, **kwargs)
-            cache[key] = result
-            return result
-        return wrapper
+    # Funções de API
 
-    @cached
     def get_all_spaces(team_id):
         url = f"https://api.clickup.com/api/v2/team/{team_id}/space"
         query = {"archived": "false"}
@@ -85,7 +68,6 @@ def extract_tasks_data():
         response.raise_for_status()
         return response.json()
 
-    @cached
     def get_all_folders(space_id):
         url = f"https://api.clickup.com/api/v2/space/{space_id}/folder"
         query = {"archived": "false"}
@@ -93,7 +75,6 @@ def extract_tasks_data():
         response.raise_for_status()
         return response.json()
 
-    @cached
     def get_all_lists(folder_id):
         url = f"https://api.clickup.com/api/v2/folder/{folder_id}/list"
         query = {"archived": "false"}
@@ -101,29 +82,36 @@ def extract_tasks_data():
         response.raise_for_status()
         return response.json()
 
-    @retry(wait=wait_exponential(multiplier=1, min=4, max=10), stop=stop_after_attempt(MAX_RETRIES))
     def get_all_tasks_in_list(list_id):
         tasks = []
         page = 0
-        while True:
-            url = f"https://api.clickup.com/api/v2/list/{list_id}/task"
-            query = {"page": page, "subtasks": "true", "include_closed": "true"}
-            response = requests.get(url, headers=headers, params=query, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            tasks.extend(data['tasks'])
-            if len(data['tasks']) < 100:
-                break
-            page += 1
-            time.sleep(WAIT_TIME)  # Adicionando um pequeno atraso entre as requisições
-        return tasks
+        retries = 0
+        while retries < MAX_RETRIES:
+            try:
+                while True:
+                    url = f"https://api.clickup.com/api/v2/list/{list_id}/task"
+                    query = {"page": page, "subtasks": "true", "include_closed": "true"}
+                    response = requests.get(url, headers=headers, params=query, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    tasks.extend(data['tasks'])
+                    if len(data['tasks']) < 100:
+                        break
+                    page += 1
+                    sleep(WAIT_TIME)
+                return tasks
+            except requests.exceptions.RequestException as e:
+                retries += 1
+                logger.error(f"Erro ao obter tarefas: {e}. Tentando novamente... ({retries}/{MAX_RETRIES})")
+                sleep(RETRY_DELAY)
+        raise Exception("Número máximo de tentativas atingido ao buscar tarefas.")
 
+    # Função principal que obtém todas as tarefas
     def get_all_tasks(team_id, list_name_filter):
         all_tasks = []
         spaces = get_all_spaces(team_id)['spaces']
         future_to_space = {}
         
-        # Adicionando progresso de tarefas
         total_spaces = len(spaces)
         with ThreadPoolExecutor(max_workers=10) as executor:
             for space in spaces:
@@ -158,12 +146,15 @@ def extract_tasks_data():
                         tasks = future.result()
                         all_tasks.extend(tasks)
                     except Exception as e:
-                        logger.error(f"Erro ao obter tarefas: {e}")
+                        logger.error(f"Erro ao obter tarefas: {e}. Tentando novamente...")
+                        retry_future = executor.submit(get_all_tasks_in_list, future_to_space[future])
+                        future_to_space[retry_future] = future_to_space[future]
                     finally:
-                        pbar.update(1)  # Atualiza a barra de progresso
+                        pbar.update(1)
 
         return all_tasks
 
+    # Obtém as tarefas com o nome da lista correspondente à sprint atual
     list_name_filter = sprint_atual
 
     try:
