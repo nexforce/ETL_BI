@@ -1,17 +1,24 @@
 # tasks_extraction.py
 
-import os
-import pandas as pd
+from tenacity import retry, wait_exponential, stop_after_attempt
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm 
+from datetime import datetime, timedelta
+import time
+import re
+import json
 import requests
 import logging
-import re
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
-from time import sleep
-from dotenv import load_dotenv
+import numpy as np 
+import pandas as pd
+import diskcache as dc
 
 def extract_tasks_data():
+
+    # Cache Persistente
+    cache = dc.Cache('/tmp/mycache')
+
+    cache.clear()
 
     # Configuração do Logger
     logging.basicConfig(level=logging.INFO)
@@ -39,18 +46,16 @@ def extract_tasks_data():
         data_inicio = datetime.strptime(f"{inicio}-2024", "%d-%m-%Y")
         data_fim = datetime.strptime(f"{fim}-2024", "%d-%m-%Y")
         
+        # Ajuste: comparar incluindo o dia de fim
         if data_inicio <= hoje <= (data_fim.replace(hour=23, minute=59, second=59)):
             sprint_atual = sprint
             break
 
     logger.info(f"O sprint atual é: {sprint_atual}")
 
-    # Carregar variáveis do arquivo .env
-    load_dotenv()
-
     # Configuração da API
     team_id = "3061382"
-    api_token = os.getenv('API_TOKEN_SECONDARY')  # Obtém o token da segunda API do .env
+    api_token = "pk_82087950_HMVU88P6USAAWJ6B9GQBXZ5Y5HRFBPHG"
     headers = {"Authorization": api_token}
 
     # Limites de taxa e configuração
@@ -59,59 +64,63 @@ def extract_tasks_data():
     MAX_RETRIES = 5
     RETRY_DELAY = 10  # Tempo inicial de atraso em segundos
 
-    # Funções de API
+    def cached(func):
+        def wrapper(*args, **kwargs):
+            key = (func.__name__, args, frozenset(kwargs.items()))
+            if key in cache:
+                return cache[key]
+            result = func(*args, **kwargs)
+            cache[key] = result
+            return result
+        return wrapper
 
+    @cached
     def get_all_spaces(team_id):
         url = f"https://api.clickup.com/api/v2/team/{team_id}/space"
         query = {"archived": "false"}
-        response = requests.get(url, headers=headers, params=query, timeout=60)
+        response = requests.get(url, headers=headers, params=query, timeout=45)
         response.raise_for_status()
         return response.json()
 
+    @cached
     def get_all_folders(space_id):
         url = f"https://api.clickup.com/api/v2/space/{space_id}/folder"
         query = {"archived": "false"}
-        response = requests.get(url, headers=headers, params=query, timeout=60)
+        response = requests.get(url, headers=headers, params=query, timeout=45)
         response.raise_for_status()
         return response.json()
 
+    @cached
     def get_all_lists(folder_id):
         url = f"https://api.clickup.com/api/v2/folder/{folder_id}/list"
         query = {"archived": "false"}
-        response = requests.get(url, headers=headers, params=query, timeout=60)
+        response = requests.get(url, headers=headers, params=query, timeout=45)
         response.raise_for_status()
         return response.json()
 
+    @retry(wait=wait_exponential(multiplier=1, min=4, max=10), stop=stop_after_attempt(MAX_RETRIES))
     def get_all_tasks_in_list(list_id):
         tasks = []
         page = 0
-        retries = 0
-        while retries < MAX_RETRIES:
-            try:
-                while True:
-                    url = f"https://api.clickup.com/api/v2/list/{list_id}/task"
-                    query = {"page": page, "subtasks": "true", "include_closed": "true"}
-                    response = requests.get(url, headers=headers, params=query, timeout=60)
-                    response.raise_for_status()
-                    data = response.json()
-                    tasks.extend(data['tasks'])
-                    if len(data['tasks']) < 100:
-                        break
-                    page += 1
-                    sleep(WAIT_TIME)
-                return tasks
-            except requests.exceptions.RequestException as e:
-                retries += 1
-                logger.error(f"Erro ao obter tarefas: {e}. Tentando novamente... ({retries}/{MAX_RETRIES})")
-                sleep(RETRY_DELAY)
-        raise Exception("Número máximo de tentativas atingido ao buscar tarefas.")
+        while True:
+            url = f"https://api.clickup.com/api/v2/list/{list_id}/task"
+            query = {"page": page, "subtasks": "true", "include_closed": "true"}
+            response = requests.get(url, headers=headers, params=query, timeout=45)
+            response.raise_for_status()
+            data = response.json()
+            tasks.extend(data['tasks'])
+            if len(data['tasks']) < 100:
+                break
+            page += 1
+            time.sleep(WAIT_TIME)  # Adicionando um pequeno atraso entre as requisições
+        return tasks
 
-    # Função principal que obtém todas as tarefas
     def get_all_tasks(team_id, list_name_filter):
         all_tasks = []
         spaces = get_all_spaces(team_id)['spaces']
         future_to_space = {}
         
+        # Adicionando progresso de tarefas
         total_spaces = len(spaces)
         with ThreadPoolExecutor(max_workers=10) as executor:
             for space in spaces:
@@ -146,15 +155,12 @@ def extract_tasks_data():
                         tasks = future.result()
                         all_tasks.extend(tasks)
                     except Exception as e:
-                        logger.error(f"Erro ao obter tarefas: {e}. Tentando novamente...")
-                        retry_future = executor.submit(get_all_tasks_in_list, future_to_space[future])
-                        future_to_space[retry_future] = future_to_space[future]
+                        logger.error(f"Erro ao obter tarefas: {e}")
                     finally:
-                        pbar.update(1)
+                        pbar.update(1)  # Atualiza a barra de progresso
 
         return all_tasks
 
-    # Obtém as tarefas com o nome da lista correspondente à sprint atual
     list_name_filter = sprint_atual
 
     try:

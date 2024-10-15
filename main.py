@@ -1,5 +1,4 @@
 import time
-import logging
 from google.cloud import bigquery
 from google.oauth2 import service_account
 from data_extraction.squads_extraction import extract_squads_data
@@ -9,10 +8,6 @@ from data_transformation.squads_transformation import transform_squads_data
 from data_transformation.customers_transformation import transform_customers_data
 from data_transformation.tasks_transformation import transform_tasks_data
 from task_management.tasks_creation import create_tasks_in_history  
-
-
-# Configure o nível de log para DEBUG
-logging.basicConfig(level=logging.DEBUG)
 
 # Função para executar queries
 def run_query(client, query):
@@ -86,7 +81,6 @@ def main():
     tasks_req = extract_tasks_data()  
 
     customer = customers.copy()
-
     tasks = tasks_req.copy()
     task_history = tasks_req.copy() 
 
@@ -108,7 +102,6 @@ def main():
     print(f"Etapa {current_step}/{total_steps} concluída em {elapsed_time:.2f} segundos.")
 
     # 3. Carga no BigQuery (Homologação)
-
     truncate_table(table_id_squad, client)
     truncate_table(table_id_customer, client)
     truncate_table(table_id_tasks, client)
@@ -149,4 +142,4 @@ def main():
     print(f"Todas as etapas concluídas em {elapsed_time:.2f} segundos.")
 
 if __name__ == "__main__":
-    main()
+     main()

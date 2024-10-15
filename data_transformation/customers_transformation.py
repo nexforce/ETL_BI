@@ -116,6 +116,8 @@ def transform_customers_data(customer):
     # Converter colunas numéricas que estão no formato 'object' para numérico
     customer['plan_points'] = pd.to_numeric(customer['plan_points'], errors='coerce')
     customer['monthly_revenue'] = pd.to_numeric(customer['monthly_revenue'], errors='coerce')
+    customer['start_date'] = customer[['start_date']].apply(lambda x: pd.to_datetime(x, errors='coerce'))
+    customer['due_date'] = customer['due_date'].apply(lambda x: pd.to_datetime(x, errors='coerce'))
 
     # Identificar duplicatas e aplicar a função de consolidação
     df_duplicates = customer[customer.duplicated('task_id', keep=False)]
@@ -141,8 +143,7 @@ def transform_customers_data(customer):
     df_final['has_growth_formula'] = df_final['has_growth_formula'].astype(bool)  # Booleano
 
     # Converte as colunas de data e verifica o tipo de cada coluna
-    df_final['start_date'] = pd.to_datetime(df_final['start_date'], errors='coerce', dayfirst=True)
-    df_final['due_date'] = pd.to_datetime(df_final['due_date'], errors='coerce', dayfirst=True)
+    
     df_final['date_created'] = pd.to_datetime(df_final['date_created'], errors='coerce', dayfirst=True)
     df_final['date_updated'] = pd.to_datetime(df_final['date_updated'], errors='coerce', dayfirst=True)
     df_final['go_live_date'] = pd.to_datetime(df_final['go_live_date'], errors='coerce', dayfirst=True)
